@@ -89,21 +89,15 @@ def search_books():
     return {'books': [book.to_dict() for book in books_list.items]}, 200
 
 
-@ books.route('/books/import', methods=['POST'])
+@books.route('/books/import', methods=['POST'])
 def import_books():
     ''' Import books from the Frappe API '''
     data = request.get_json()
     number_of_books = data.get("number_of_books") or 20
-    pages = math.ceil(number_of_books / 20)
-    last_page_books = number_of_books - (pages - 1) * 20
-    last_page_flag = False
-
-    i = 1
     total_books = []
 
-    while i <= pages:
-        if i == pages:
-            last_page_flag = True
+    i = 1
+    while len(total_books) < number_of_books and i <= 200:  # Add condition for max pages
         data.update({'page': i})
         i += 1
 
@@ -113,12 +107,6 @@ def import_books():
         books_data = response.json().get('message')
 
         for book_data in books_data:
-            # in last page all books not needed according to no of books
-            if last_page_flag:
-                last_page_books -= 1
-            if last_page_books < 0:
-                break
-
             # now add to import data
             try:
                 book_data_model = {
@@ -139,12 +127,14 @@ def import_books():
                 db.session.add(book)
                 db.session.commit()
                 total_books.append(book.to_dict())
+                if len(total_books) >= number_of_books:
+                    break
             except IntegrityError:
                 db.session.rollback()  # Rollback the transaction on error
             except Exception:
                 db.session.rollback()
 
-        if last_page_flag:
+        if len(total_books) >= number_of_books:
             break
 
     return {'no_imported_books': len(total_books)}, 201
