@@ -4,5 +4,7 @@ flask_cors==4.0.0
 Flask_Migrate==4.0.5
 flask_sqlalchemy==3.1.1
 Requests==2.31.0
+eventlet==0.33.3
+Flask-SocketIO==5.3.6
 SQLAlchemy==2.0.21
 psycopg2-binary==2.9.7
