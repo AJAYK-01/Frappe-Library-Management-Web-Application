@@ -14,7 +14,7 @@ app.register_blueprint(members)
 app.register_blueprint(transactions)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = \
-    'postgresql://admin:password@localhost:5432/library?sslmode=disable'
+    'postgresql://admin:password@localhost:5432/library2?sslmode=disable'
 
 db.init_app(app)
 migrate = Migrate(app, db)

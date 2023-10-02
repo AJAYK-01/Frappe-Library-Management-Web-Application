@@ -1,6 +1,9 @@
+from sqlalchemy import inspect
+from sqlalchemy.exc import IntegrityError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from psycopg2 import IntegrityError
 import requests
-import math
+import threading
 
 from flask import Blueprint, request
 from sqlalchemy import func, update
@@ -95,49 +98,69 @@ def import_books():
     data = request.get_json()
     number_of_books = data.get("number_of_books") or 20
     total_books = []
+    stop_threads = threading.Event()
 
-    i = 1
-    while len(total_books) < number_of_books and i <= 200:  # Add condition for max pages
-        data.update({'page': i})
-        i += 1
-
+    def fetch_books(page):
+        req_data = data.copy()
+        req_data.update({'page': page})
         response = requests.get('https://frappe.io/api/method/frappe-library',
-                                params=data, timeout=30)
+                                params=req_data, timeout=30)
+        return response.json().get('message')
 
-        books_data = response.json().get('message')
+    # Fetch books concurrently
+    with ThreadPoolExecutor(max_workers=200) as executor:
+        future_to_page = {executor.submit(
+            fetch_books, i): i for i in range(1, 201)}
+        for future in as_completed(future_to_page):
+            if stop_threads.is_set():
+                break
+            books_data = future.result()
+            for book_data in books_data:
+                # now add to import data
+                try:
+                    book_data_model = {
+                        "id": book_data.get("bookID"),
+                        "title": book_data.get("title"),
+                        "authors": book_data.get("authors"),
+                        "average_rating": book_data.get("average_rating"),
+                        "isbn": book_data.get("isbn"),
+                        "isbn13": book_data.get("isbn13"),
+                        "language_code": book_data.get("language_code"),
+                        "num_pages": book_data.get("  num_pages"),
+                        "ratings_count": book_data.get("ratings_count"),
+                        "text_reviews_count": book_data.get("text_reviews_count"),
+                        "publication_date": book_data.get("publication_date"),
+                        "publisher": book_data.get("publisher")
+                    }
+                    book = Books(**book_data_model)
+                    total_books.append(book)
+                    if len(total_books) >= number_of_books:
+                        stop_threads.set()
+                        break
+                except Exception:
+                    pass
 
-        for book_data in books_data:
-            # now add to import data
-            try:
-                book_data_model = {
-                    "id": book_data.get("bookID"),
-                    "title": book_data.get("title"),
-                    "authors": book_data.get("authors"),
-                    "average_rating": book_data.get("average_rating"),
-                    "isbn": book_data.get("isbn"),
-                    "isbn13": book_data.get("isbn13"),
-                    "language_code": book_data.get("language_code"),
-                    "num_pages": book_data.get("  num_pages"),
-                    "ratings_count": book_data.get("ratings_count"),
-                    "text_reviews_count": book_data.get("text_reviews_count"),
-                    "publication_date": book_data.get("publication_date"),
-                    "publisher": book_data.get("publisher")
-                }
-                book = Books(**book_data_model)
+            if len(total_books) >= number_of_books:
+                break
+
+    count = 0
+    # Batch Add or update books
+    try:
+        for book in total_books:
+            existing_book = Books.query.get(book.id)
+            if existing_book is None:
+                # This is an insert
                 db.session.add(book)
-                db.session.commit()
-                total_books.append(book.to_dict())
-                if len(total_books) >= number_of_books:
-                    break
-            except IntegrityError:
-                db.session.rollback()  # Rollback the transaction on error
-            except Exception:
-                db.session.rollback()
+                count += 1
+            else:
+                # This is an update
+                for attr, value in book.__dict__.items():
+                    setattr(existing_book, attr, value)
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()  # Rollback the transaction on error
 
-        if len(total_books) >= number_of_books:
-            break
-
-    return {'no_imported_books': len(total_books)}, 201
+    return {'no_imported_books': count}, 201
 
 
 @ books.route('/books/import-all', methods=['POST'])
