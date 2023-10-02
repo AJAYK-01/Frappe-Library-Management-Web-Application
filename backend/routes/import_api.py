@@ -10,17 +10,15 @@ from ..models import db, Books
 # @socketio.on('start_import')
 def import_books(data):
     ''' import books from Frappe API and stream progress'''
-    print("hehehe")
+
     # for testing with piesocket
     data = json.loads(data)
     number_of_books = data.get('number_of_books', 20)
 
-    # number_of_books = data.get('number_of_books', 20)
     total_books = []
 
     i = 1
     while len(total_books) < number_of_books:
-        print(i, "helloo")
         # Add condition for max pages
         if i > 200:
             emit('maxxed_out')
@@ -63,7 +61,7 @@ def import_books(data):
                     break
             except IntegrityError:
                 db.session.rollback()  # Rollback the transaction on error
-            except Exception:
+            except Exception as e:
                 db.session.rollback()
 
         if len(total_books) >= number_of_books:
@@ -84,7 +82,6 @@ def import_all_books():
             response = requests.get('https://frappe.io/api/method/frappe-library',
                                     params={"page": i}, timeout=30)
             books_data = response.json().get('message')
-            print("Round 1" + str(i))
 
             for book_data in books_data:
                 try:
